@@ -329,10 +329,11 @@ impl HumanVoice {
         g.closure_sharpness = clamp(by_tension + 0.8 * bright, 0.0, 1.0);
         g.skew = 0.56 + 0.16 * s.tension + 0.2 * bright;
         g.fry = s.fry;
-        // Jitter of a healthy, trained voice at the default roughness (0.1): about 0.45 %, well
-        // under the clinical threshold (MDVP: 1.04 %).
-        g.jitter = 0.0021 + 0.0245 * s.roughness;
-        g.shimmer = 0.02 + 0.22 * s.roughness;
+        // At roughness=0, a user can request a fully periodic voice for comparison and
+        // imitation. Preserve the calibrated jitter/shimmer from roughness=0.1 upward.
+        let baseline = clamp(s.roughness / DEFAULT_SOURCE.roughness, 0.0, 1.0);
+        g.jitter = 0.0021 * baseline + 0.0245 * s.roughness;
+        g.shimmer = 0.02 * baseline + 0.22 * s.roughness;
         g.diplophonia = if s.roughness > 0.5 { (s.roughness - 0.5) * 1.4 } else { 0.0 };
         g.vibrato_depth = s.vibrato_depth;
         g.vibrato_rate = s.vibrato_rate;
