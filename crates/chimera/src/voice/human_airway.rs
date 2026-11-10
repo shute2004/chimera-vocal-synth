@@ -43,6 +43,8 @@ pub struct HumanAirway {
     pub or_len: f64,
     /// noise gains (tunable)
     pub noise_gain: NoiseGains,
+    /// Experimental aspiration band in Hz (low-pass, high-pass); defaults retain calibrated sound.
+    pub glottis_noise_band_hz: (f64, f64),
     /// max area change rate (cm²/s, body-scaled): a physiological guard against geometric jumps
     pub max_area_rate: f64,
     /// additional rate per cm² of current area (1/s)
@@ -140,6 +142,7 @@ impl HumanAirway {
             ph_len: 8.8,
             or_len: 8.3,
             noise_gain: NoiseGains { glottis: 3.2e-6, constriction: 2.2e-6, teeth: 3.0e-6 },
+            glottis_noise_band_hz: (3500.0, 300.0),
             max_area_rate: 45.0,
             area_rate_gain: 40.0,
             seal_rate: 5.0,
@@ -268,7 +271,7 @@ impl HumanAirway {
         let mut list = core::mem::take(&mut self.noise_list);
         list.clear();
         // aspiration: jet from the glottis hits the epilarynx/ventricular region
-        list.push(NoiseSpec::new(self.glottis_port, self.branch_of(self.pharynx, 1), self.branch_of(self.trachea, self.trachea.n as isize - 2), g.glottis).band(3500.0, 300.0));
+        list.push(NoiseSpec::new(self.glottis_port, self.branch_of(self.pharynx, 1), self.branch_of(self.trachea, self.trachea.n as isize - 2), g.glottis).band(self.glottis_noise_band_hz.0, self.glottis_noise_band_hz.1));
         // narrowest open point in pharynx+oral (global position index p over concatenated tubes)
         let (n_ph, n_or) = (self.n_ph, self.n_or);
         let mut min_a = f64::INFINITY;

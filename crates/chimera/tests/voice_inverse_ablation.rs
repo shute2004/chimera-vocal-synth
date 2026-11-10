@@ -472,3 +472,67 @@ fn physical_turbulence_scale_ablation() {
         "At least one physical airflow noise generator must affect output"
     );
 }
+
+/// Probe the existing glottal turbulence filter without changing voice defaults.
+#[test]
+#[ignore = "diagnostic: physical aspiration band under fixed phonation"]
+fn glottal_noise_band_sensitivity() {
+    let base = Settings::baseline();
+    let body = BodyMix::new(base.female, 0.0);
+    let mut renders: Vec<((f64, f64), Vec<f32>)> = Vec::new();
+    for band in [
+        (3500.0, 300.0),
+        (1200.0, 80.0),
+        (2000.0, 80.0),
+        (3500.0, 80.0),
+        (2000.0, 300.0),
+        (5000.0, 300.0),
+    ] {
+        let mut voice = HumanVoice::new(FS, body.body(), 2);
+        let mut artic = vowel_artic("a", body).unwrap();
+        artic.set(ArticKey::Jaw, artic.get(ArticKey::Jaw).unwrap() + base.jaw);
+        voice.set_articulation(&artic, None);
+        voice.set_source(&SourcePatch {
+            f0: Some(PITCH),
+            glide: Some(0.025),
+            brightness: Some(base.bright),
+            tension: Some(base.tension),
+            pressure: Some(base.pressure),
+            breathiness: Some(base.breath),
+            roughness: Some(0.0),
+            drift: Some(0.0),
+            vibrato_depth: Some(0.0),
+            ..Default::default()
+        });
+        voice.set_gate(1.0);
+        voice.airway.net.noise_scale = 10.0;
+        voice.airway.glottis_noise_band_hz = band;
+        let mut pcm = vec![0.0; 20_000];
+        voice.render(&mut pcm);
+        renders.push((band, pcm));
+    }
+    let baseline = &renders[0].1;
+    let rms =
+        (baseline.iter().map(|x| (*x as f64).powi(2)).sum::<f64>() / baseline.len() as f64).sqrt();
+    println!("lowpass_hz,highpass_hz,difference_from_default_rms_ratio");
+    let mut changed = 0;
+    for (band, pcm) in &renders {
+        let delta = (pcm
+            .iter()
+            .zip(baseline)
+            .map(|(x, y)| (*x as f64 - *y as f64).powi(2))
+            .sum::<f64>()
+            / pcm.len() as f64)
+            .sqrt()
+            / rms;
+        println!("{:.0},{:.0},{delta:.6}", band.0, band.1);
+        assert!(delta.is_finite());
+        if delta > 0.0001 {
+            changed += 1;
+        }
+    }
+    assert!(
+        changed >= 4,
+        "Glottal noise band should change physical PCM"
+    );
+}
