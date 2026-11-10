@@ -425,4 +425,50 @@ fn physical_turbulence_scale_ablation() {
         delta[4] >= delta[1],
         "Increasing turbulence should affect the output"
     );
+    // Which of the three pre-existing turbulence generators affects the waveform?
+    let with_noise = &outputs[3].1; // scale 10
+    println!("disabled_source,relative_pcm_difference_at_scale_10");
+    let mut contributions = Vec::new();
+    for disabled in ["glottis", "constriction", "teeth"] {
+        let mut voice = HumanVoice::new(FS, body.body(), 2);
+        let mut artic = vowel_artic("a", body).unwrap();
+        artic.set(ArticKey::Jaw, artic.get(ArticKey::Jaw).unwrap() + base.jaw);
+        voice.set_articulation(&artic, None);
+        voice.set_source(&SourcePatch {
+            f0: Some(PITCH),
+            glide: Some(0.025),
+            brightness: Some(base.bright),
+            tension: Some(base.tension),
+            pressure: Some(base.pressure),
+            breathiness: Some(base.breath),
+            roughness: Some(0.0),
+            drift: Some(0.0),
+            vibrato_depth: Some(0.0),
+            ..Default::default()
+        });
+        voice.set_gate(1.0);
+        voice.airway.net.noise_scale = 10.0;
+        match disabled {
+            "glottis" => voice.airway.noise_gain.glottis = 0.0,
+            "constriction" => voice.airway.noise_gain.constriction = 0.0,
+            "teeth" => voice.airway.noise_gain.teeth = 0.0,
+            _ => unreachable!(),
+        }
+        let mut pcm = vec![0.0f32; 20_000];
+        voice.render(&mut pcm);
+        let delta = (pcm
+            .iter()
+            .zip(with_noise)
+            .map(|(a, b)| (*a as f64 - b).powi(2))
+            .sum::<f64>()
+            / pcm.len() as f64)
+            .sqrt()
+            / reference_rms;
+        println!("{disabled},{delta:.6}");
+        contributions.push(delta);
+    }
+    assert!(
+        contributions.iter().any(|v| *v > 0.001),
+        "At least one physical airflow noise generator must affect output"
+    );
 }
