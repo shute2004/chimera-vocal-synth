@@ -59,6 +59,9 @@ fn ratio(samples: &[f64], a: usize, b: usize) -> f64 {
     10.0 * ((harmonic(samples, a) + 1e-20) / (harmonic(samples, b) + 1e-20)).log10()
 }
 fn measure(s: Settings) -> Measure {
+    measure_shape(s, |_| {})
+}
+fn measure_shape(s: Settings, adjust: impl FnOnce(&mut HumanVoice)) -> Measure {
     let body = BodyMix::new(s.female, 0.0);
     let mut voice = HumanVoice::new(FS, body.body(), 2);
     let mut artic = vowel_artic("a", body).unwrap();
@@ -85,6 +88,7 @@ fn measure(s: Settings) -> Measure {
         ..Default::default()
     });
     voice.set_gate(1.0);
+    adjust(&mut voice);
     let mut output = Vec::with_capacity(20_000);
     let mut glottal_area = Vec::with_capacity(20_000);
     let mut glottal_flow = Vec::with_capacity(20_000);
@@ -267,5 +271,88 @@ fn scan_tongue_jaw_resonance_range() {
     assert!(
         rows[0].0 - rows.last().unwrap().0 > 1.0,
         "Vocal-tract sweep did not move spectrum"
+    );
+}
+
+/// Control one glottal pulse-shape parameter at a time. This is a physical
+/// engine diagnostic, not evidence that the resulting voice sounds human.
+#[test]
+#[ignore = "diagnostic: multiple physical voice renderings"]
+fn glottal_pulse_shape_sensitivity() {
+    let base = Settings::baseline();
+    let reference = measure(base);
+    println!("shape,output_H1_H2,output_H4_H2,glottal_flow_H4_H2");
+    println!(
+        "default,{:.3},{:.3},{:.3}",
+        reference.output_h1h2, reference.output, reference.flow
+    );
+    let mut values = Vec::new();
+    for oq in [0.45, 0.60, 0.75, 0.90] {
+        let m = measure_shape(base, |v| v.glottis.params.open_quotient = oq);
+        println!(
+            "oq_{oq:.2},{:.3},{:.3},{:.3}",
+            m.output_h1h2, m.output, m.flow
+        );
+        values.push(m.output_h1h2);
+    }
+    for closure in [0.0, 0.4, 0.9] {
+        let m = measure_shape(base, |v| v.glottis.params.closure_sharpness = closure);
+        println!(
+            "closure_{closure:.2},{:.3},{:.3},{:.3}",
+            m.output_h1h2, m.output, m.flow
+        );
+        values.push(m.output_h1h2);
+    }
+    for skew in [0.35, 0.65, 0.85] {
+        let m = measure_shape(base, |v| v.glottis.params.skew = skew);
+        println!(
+            "skew_{skew:.2},{:.3},{:.3},{:.3}",
+            m.output_h1h2, m.output, m.flow
+        );
+        values.push(m.output_h1h2);
+    }
+    assert!(values.iter().all(|v| v.is_finite()));
+    let lowest = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let highest = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    println!("H1_H2_range_{lowest:.2}_{highest:.2}dB");
+    assert!(
+        highest - lowest > 0.3,
+        "Vocal closure controls appear acoustically inert"
+    );
+}
+
+/// Interpolating *articulators* is different from crossfading the output audio.
+#[test]
+#[ignore = "diagnostic: multiple physical voice renderings"]
+fn vowel_a_to_u_articulator_interpolation() {
+    use chimera::anatomy::human::ArticPatch;
+    let base = Settings::baseline();
+    let body = BodyMix::new(base.female, 0.0);
+    let a = vowel_artic("a", body).unwrap();
+    let u = vowel_artic("u", body).unwrap();
+    let baseline = measure(base);
+    println!("u_mix,output_H1_H2,output_H4_H2,glottal_flow_H4_H2");
+    let mut ratios = Vec::new();
+    for mix in [0.0, 0.25, 0.5, 0.75, 1.0] {
+        let mut patch = ArticPatch::blend(&[(1.0 - mix, a), (mix, u)]);
+        patch.set(ArticKey::Jaw, patch.get(ArticKey::Jaw).unwrap() + base.jaw);
+        let m = measure_shape(base, |voice| voice.set_articulation(&patch, None));
+        println!(
+            "{mix:.2},{:.3},{:.3},{:.3}",
+            m.output_h1h2, m.output, m.flow
+        );
+        ratios.push(m.output_h1h2);
+    }
+    assert!(
+        (ratios[0] - baseline.output_h1h2).abs() < 1e-6,
+        "The 0% u articulatory mixture must equal the a baseline"
+    );
+    assert!(ratios.iter().all(|value| value.is_finite()));
+    let min = ratios.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = ratios.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    println!("mixed_vowel_H1_H2_range_{min:.2}_{max:.2}dB");
+    assert!(
+        max - min > 1.0,
+        "Vowel posture did not change low harmonic balance"
     );
 }
