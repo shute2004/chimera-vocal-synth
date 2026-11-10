@@ -24,7 +24,7 @@ Scientific context: [Shue et al. (2010)](https://doi.org/10.21437/Interspeech.20
 ## Reproduce
 
 ~~~sh
-cd ~/Desktop/chimera-vocal-synth
+cd ~/Desktop/CHIMERA/chimera-vocal-synth
 cargo test --release -p chimera --test vowel_source_diagnostics -- --nocapture
 ~~~
 
