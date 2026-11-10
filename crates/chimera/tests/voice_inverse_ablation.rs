@@ -356,3 +356,73 @@ fn vowel_a_to_u_articulator_interpolation() {
         "Vowel posture did not change low harmonic balance"
     );
 }
+
+/// Physical-turbulence ablation. Does not modify any synthesis defaults.
+#[test]
+#[ignore = "diagnostic sweep of physical airway turbulence"]
+fn physical_turbulence_scale_ablation() {
+    let base = Settings::baseline();
+    let body = BodyMix::new(base.female, 0.0);
+    let mut outputs: Vec<(f64, Vec<f64>)> = Vec::new();
+    for scale in [0.0, 1.0, 3.0, 10.0, 30.0] {
+        let mut voice = HumanVoice::new(FS, body.body(), 2);
+        let mut a = vowel_artic("a", body).unwrap();
+        a.set(ArticKey::Jaw, a.get(ArticKey::Jaw).unwrap() + base.jaw);
+        voice.set_articulation(&a, None);
+        voice.set_source(&SourcePatch {
+            f0: Some(PITCH),
+            glide: Some(0.025),
+            brightness: Some(base.bright),
+            tension: Some(base.tension),
+            pressure: Some(base.pressure),
+            breathiness: Some(base.breath),
+            roughness: Some(0.0),
+            drift: Some(0.0),
+            vibrato_depth: Some(0.0),
+            ..Default::default()
+        });
+        voice.set_gate(1.0);
+        voice.airway.net.noise_scale = scale;
+        let mut samples = vec![0.0f32; 20_000];
+        voice.render(&mut samples);
+        let pcm = samples.iter().map(|x| *x as f64).collect::<Vec<_>>();
+        outputs.push((scale, pcm));
+    }
+    let silent = &outputs[0].1;
+    let voiced = &outputs[1].1;
+    let reference_rms = (silent.iter().map(|x| x * x).sum::<f64>() / silent.len() as f64).sqrt();
+    assert!(reference_rms > 1e-5);
+    println!("scale,period_corr,delta_rms_over_voice");
+    let mut delta = Vec::new();
+    for (scale, pcm) in &outputs {
+        let slice = &pcm[pcm.len() - 8192..];
+        let mut max_cor = -1.0f64;
+        for lag in 112..=117 {
+            let (mut xy, mut xx, mut yy) = (0.0, 0.0, 0.0);
+            for i in 0..(slice.len() - lag) {
+                let a = slice[i];
+                let b = slice[i + lag];
+                xy += a * b;
+                xx += a * a;
+                yy += b * b;
+            }
+            max_cor = max_cor.max(xy / ((xx * yy).sqrt() + 1e-20));
+        }
+        let diff = (pcm
+            .iter()
+            .zip(silent)
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f64>()
+            / pcm.len() as f64)
+            .sqrt()
+            / reference_rms;
+        delta.push(diff);
+        println!("{scale:.0},{max_cor:.6},{diff:.6}");
+        assert!(max_cor.is_finite() && diff.is_finite());
+    }
+    assert_eq!(silent.len(), voiced.len());
+    assert!(
+        delta[4] >= delta[1],
+        "Increasing turbulence should affect the output"
+    );
+}
